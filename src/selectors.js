@@ -9,34 +9,62 @@
  * Callers should try each selector in turn and use the first that matches.
  */
 
-// ─── Workspace list ──────────────────────────────────────────────────────────
+// ─── Workspace discovery: MAIN CONTENT (center gallery) only ───────────────────
+// Discovery must never use the left sidebar. Workspaces are the cards in the
+// middle of the screen when the "Workspaces" tab is selected.
 
-export const WORKSPACE_LIST_SELECTORS = [
-  '[data-testid="workspace-list"]',
+/** Container for the workspace cards grid in the main content area. */
+export const WORKSPACE_GALLERY_CONTAINER_SELECTORS = [
+  '[data-testid="workspaces-grid"]',
   '[aria-label="Workspaces"]',
-  'ul[class*="WorkspaceList"]',
-  'ul[class*="workspaceList"]',
-  'nav ul[role="list"]',
-  '[class*="workspaceNav"]',
-  // Generic: the left-sidebar list that contains workspace entries
-  'aside ul',
-  'nav ul',
+  'main [class*="grid"]',
+  'main [class*="Gallery"]',
+  'main [class*="gallery"]',
+  '[role="main"] [class*="workspace"]',
+  'main section',
+  '[role="main"]',
+  'main',
 ];
 
-export const WORKSPACE_ITEM_SELECTORS = [
-  '[data-testid="workspace-item"]',
-  '[role="treeitem"][aria-label]',
-  'li[class*="Workspace"]',
-  'li[class*="workspace"]',
-  '[class*="workspaceItem"]',
-  // Fluent TreeItem
-  '[class*="fui-TreeItem"]',
-  // Generic: list items in the sidebar
-  'aside li',
+/** Individual workspace cards in the center gallery (one card = one workspace). */
+export const WORKSPACE_GALLERY_CARD_SELECTORS = [
+  '[data-testid="workspace-card"]',
+  'a[href*="loop.microsoft.com"], a[href*="loop.cloud.microsoft"]',
+  '[role="button"][class*="workspace"]',
+  '[class*="WorkspaceCard"]',
+  '[class*="workspaceCard"]',
+  'main a[href*="loop"]',
+  '[role="main"] a[href*="loop"]',
+  'main [role="grid"] > *',
+  'main [class*="card"]',
+  // Fallback: clickable blocks in main that look like cards
+  'main a',
 ];
 
-// ─── Page / subpage tree ─────────────────────────────────────────────────────
+// Legacy names kept for any external use; prefer gallery selectors above.
+export const WORKSPACE_LIST_SELECTORS = WORKSPACE_GALLERY_CONTAINER_SELECTORS;
+export const WORKSPACE_ITEM_SELECTORS = WORKSPACE_GALLERY_CARD_SELECTORS;
 
+// ─── Page tree: EXPANDABLE sidebar only (not the left sidebar) ─────────────────
+// When a workspace is open, a second sidebar expands with that workspace’s pages.
+// We must use only this expandable sidebar for the page tree (not the left nav).
+
+/** Container for the expandable sidebar that shows pages for the current workspace. */
+export const EXPANDABLE_SIDEBAR_CONTAINER_SELECTORS = [
+  '[data-testid="page-tree-container"]',
+  '[aria-label="Pages"]',
+  '[class*="PageTree"]',
+  '[class*="pageTree"]',
+  '[class*="pageList"]',
+  // The expandable panel is often the second nav-like region (not the leftmost)
+  'nav[role="navigation"] [role="tree"]',
+  '[class*="sidebar"] [role="tree"]',
+  '[class*="Sidebar"] [role="tree"]',
+  'ul[role="tree"]',
+  '[class*="fui-Tree"]',
+];
+
+/** Tree/list that holds page items inside the expandable sidebar. */
 export const PAGE_TREE_SELECTORS = [
   '[data-testid="page-tree"]',
   '[aria-label="Pages"]',
@@ -44,7 +72,6 @@ export const PAGE_TREE_SELECTORS = [
   'ul[class*="pageTree"]',
   '[class*="pageList"]',
   'ul[role="tree"]',
-  // Fluent Tree
   '[class*="fui-Tree"]',
 ];
 

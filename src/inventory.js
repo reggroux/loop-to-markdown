@@ -14,22 +14,24 @@
  *   ]
  * }
  *
- * Strategy for SPA navigation:
- * 1. Click each workspace to load its page tree.
- * 2. Walk the tree recursively, expanding collapsed nodes.
- * 3. Capture URL, title, depth, and parent for each page.
- * 4. Use multi-selector fallbacks throughout (see selectors.js).
+ * Strategy:
+ * 1. Discover workspaces only from the CENTER gallery (main content). Never the left sidebar.
+ * 2. For each workspace, open it (click its card or go to URL).
+ * 3. Enumerate pages only from the EXPANDABLE sidebar (appears when workspace is selected).
+ * 4. Expand carets in that sidebar to get sub-pages. Use selectors.js for fallbacks.
  */
 
 import path from 'path';
 import { writeFileSync, mkdirSync } from 'fs';
 import { setTimeout } from 'node:timers/promises';
 import {
-  WORKSPACE_LIST_SELECTORS,
-  WORKSPACE_ITEM_SELECTORS,
+  WORKSPACE_GALLERY_CONTAINER_SELECTORS,
+  WORKSPACE_GALLERY_CARD_SELECTORS,
   PAGE_ITEM_SELECTORS,
   EXPAND_BUTTON_SELECTORS,
   EXPAND_INSIDE_TREEITEM_SELECTORS,
+  EXPANDABLE_SIDEBAR_CONTAINER_SELECTORS,
+  PAGE_TREE_SELECTORS,
   findFirst,
   findAll,
   elementLabel,
@@ -49,7 +51,7 @@ import { LOOP_URL } from './browser.js';
 export async function runInventory(page, { outputDir, verbose = false }) {
   log('🔍 Starting inventory pass…');
 
-  // Make sure we're on the Loop home (workspace list)
+  // Make sure we're on the Loop home (center gallery view)
   if (!(page.url().includes('loop.microsoft.com') || page.url().includes('loop.cloud.microsoft'))) {
     await page.goto(LOOP_URL, { waitUntil: 'domcontentloaded', timeout: 120_000 });
   }
@@ -94,31 +96,26 @@ export async function runInventory(page, { outputDir, verbose = false }) {
   return manifest;
 }
 
-// ─── Workspace enumeration ────────────────────────────────────────────────────
+// ─── Workspace enumeration (center gallery only — never the left sidebar) ───────
 
 async function enumerateWorkspaces(page, verbose) {
-  // Strategy A: look for workspace list container, then items inside
-  const listEl = await findFirst(page, WORKSPACE_LIST_SELECTORS, 5000);
+  // Only discover from the main content area (gallery of workspace cards).
+  const galleryEl = await findFirst(page, WORKSPACE_GALLERY_CONTAINER_SELECTORS, 5000);
 
   let items = [];
-  if (listEl) {
-    items = await findAll(listEl, WORKSPACE_ITEM_SELECTORS);
-    if (verbose) log(`  [selectors] workspace list found, ${items.length} item(s)`);
+  if (galleryEl) {
+    items = await findAll(galleryEl, WORKSPACE_GALLERY_CARD_SELECTORS);
+    if (verbose) log(`  [gallery] workspace cards in main content: ${items.length}`);
   }
 
-  // Strategy B: fallback — scan the whole sidebar for clickable workspace entries
+  // If no gallery cards found, try API intercept (do not fall back to left sidebar).
   if (!items.length) {
-    log('  ⚠️  Workspace list not found via primary selectors, trying fallback…');
-    items = await fallbackWorkspaceItems(page);
-  }
-
-  // Strategy C: try to read the workspace entries from the page's JS/network state
-  if (!items.length) {
-    log('  ⚠️  Fallback also found nothing. Trying URL/API intercept strategy…');
+    log('  ⚠️  No workspace cards in main content. Trying API intercept…');
     return await apiInterceptWorkspaces(page, verbose);
   }
 
   const workspaces = [];
+  const seenTitles = new Set();
   for (const item of items) {
     const title = await elementLabel(item);
     const href = await safeAttr(item, 'href') || await linkHref(item);
@@ -126,13 +123,13 @@ async function enumerateWorkspaces(page, verbose) {
                await safeAttr(item, 'data-id') ||
                slugifyTitle(title) + '_' + workspaces.length;
 
-    if (!title) continue; // skip empty/invisible items
+    if (!title || seenTitles.has(title)) continue;
+    seenTitles.add(title);
 
     workspaces.push({
       id,
       title,
       url: href ? resolveUrl(href) : null,
-      element: null, // don't store handles — stale after nav
       pages: [],
     });
 
@@ -140,19 +137,6 @@ async function enumerateWorkspaces(page, verbose) {
   }
 
   return workspaces;
-}
-
-async function fallbackWorkspaceItems(page) {
-  // Try broad selectors for any clickable sidebar elements
-  const candidates = [
-    'aside [role="button"]',
-    'aside a',
-    'nav [role="button"]',
-    'nav a[href*="loop"]',
-    '[class*="sidebar"] li',
-    '[class*="Sidebar"] li',
-  ];
-  return findAll(page, candidates);
 }
 
 /**
@@ -202,7 +186,7 @@ async function apiInterceptWorkspaces(page, verbose) {
     // Last resort: manual instruction
     console.warn(
       '\n⚠️  Could not auto-discover workspaces. Loop may have changed its DOM/API.\n' +
-      '   Please check selectors.js and update WORKSPACE_LIST_SELECTORS.\n' +
+      '   Please check selectors.js and update WORKSPACE_GALLERY_* selectors.\n' +
       '   You can also run with --verbose and inspect the logged selectors.\n'
     );
   }
@@ -215,53 +199,65 @@ async function apiInterceptWorkspaces(page, verbose) {
 async function navigateToWorkspace(page, ws) {
   if (ws.url) {
     await page.goto(ws.url, { waitUntil: 'domcontentloaded', timeout: 120_000 });
+    await setTimeout(2_500);
     return;
   }
 
-  // Try clicking the workspace item in the sidebar by its title
-  const clicked = await clickSidebarItem(page, ws.title);
+  // Click the workspace card in the center gallery (not the left sidebar).
+  const clicked = await clickGalleryWorkspaceCard(page, ws.title);
   if (!clicked) {
-    throw new Error(`Could not navigate to workspace "${ws.title}" — no URL and sidebar click failed`);
+    throw new Error(`Could not open workspace "${ws.title}" — no URL and gallery card click failed`);
   }
-  await setTimeout(2_000);
+  await setTimeout(2_500);
 }
 
-async function clickSidebarItem(page, title) {
-  const escapedTitle = title.replace(/'/g, "\\'");
-  const strategies = [
-    // aria-label exact match
-    `[aria-label="${title}"]`,
-    // text content
-    `text="${title}"`,
-    // partial text
-    `text*="${title.slice(0, 20)}"`,
-  ];
+/** Click a workspace card in the main content gallery by title. */
+async function clickGalleryWorkspaceCard(page, title) {
+  const galleryEl = await findFirst(page, WORKSPACE_GALLERY_CONTAINER_SELECTORS, 3000);
+  if (!galleryEl) return false;
 
-  for (const sel of strategies) {
+  const cards = await findAll(galleryEl, WORKSPACE_GALLERY_CARD_SELECTORS);
+  for (const card of cards) {
     try {
-      await page.click(sel, { timeout: 3000 });
-      return true;
-    } catch { /* try next */ }
+      const label = await elementLabel(card);
+      if (label && (label === title || label.includes(title) || title.includes(label))) {
+        await card.click({ timeout: 3000 });
+        return true;
+      }
+    } catch { /* try next card */ }
   }
   return false;
 }
 
-// ─── Page enumeration ─────────────────────────────────────────────────────────
+// ─── Page enumeration (expandable sidebar only — not the left sidebar) ─────────
 
 /**
- * Walk the page tree in the currently-active workspace sidebar.
+ * Get the root element of the expandable sidebar that shows pages for the current
+ * workspace. We must not use the left nav for the page tree.
+ * @returns {Promise<import('playwright').ElementHandle|null>}
+ */
+async function getExpandableSidebarRoot(page) {
+  return findFirst(page, EXPANDABLE_SIDEBAR_CONTAINER_SELECTORS, 3000);
+}
+
+/**
+ * Walk the page tree in the expandable sidebar (the one that appears when a workspace is open).
  * Returns a flat list annotated with depth/parentId, plus a nested `children` field.
  */
 async function enumeratePages(page, workspace, verbose) {
-  // Expand all collapsible nodes first (multiple passes)
-  await expandAllNodes(page, verbose);
+  const sidebarRoot = await getExpandableSidebarRoot(page);
+  if (verbose && sidebarRoot) log('  [expandable sidebar] found; scoping page tree to it.');
 
-  // Loop virtualizes the page tree. Force-render by scrolling the tree container
-  // and expanding as we go until the item count stops increasing.
-  await fullyMaterializePageTree(page, verbose);
+  // Expand carets only in the expandable sidebar
+  await expandAllNodes(page, verbose, sidebarRoot);
 
-  // Now collect all page tree items
-  const allItems = await findAll(page, PAGE_ITEM_SELECTORS);
+  // Scroll and expand until the tree is fully visible (within expandable sidebar)
+  await fullyMaterializePageTree(page, verbose, sidebarRoot);
+
+  // Collect page items only from the expandable sidebar
+  const allItems = sidebarRoot
+    ? await findAll(sidebarRoot, PAGE_ITEM_SELECTORS)
+    : await findAll(page, PAGE_ITEM_SELECTORS);
 
   if (!allItems.length) {
     log('  ⚠️  No page items found. Trying API intercept for pages…');
@@ -318,22 +314,21 @@ async function enumeratePages(page, workspace, verbose) {
 }
 
 /**
- * Expand all collapsed tree nodes by clicking expand/caret controls.
- * Strategy: find collapsed [role="treeitem"] nodes, scroll each into view,
- * then click the expand control *inside* that item (or the row itself).
- * Repeats until no new collapsed nodes appear (or max iterations).
+ * Expand all collapsed tree nodes in the page tree (expandable sidebar only when root given).
+ * Clicks expand/caret controls; repeats until no progress or max iterations.
  */
-async function expandAllNodes(page, verbose) {
+async function expandAllNodes(page, verbose, sidebarRoot = null) {
+  const root = sidebarRoot || page;
   let iterations = 0;
   const maxIterations = 20;
 
   while (iterations < maxIterations) {
-    // Find tree items that are collapsed (have children but not expanded)
-    const collapsedTreeItems = await page.$$('[role="treeitem"][aria-expanded="false"]');
+    // Find collapsed tree items within the expandable sidebar (or full page if no root)
+    const collapsedTreeItems = await root.$$('[role="treeitem"][aria-expanded="false"]');
 
     if (!collapsedTreeItems.length) {
-      // Fallback: look for any expand buttons in the page (legacy behavior)
-      const expandBtns = await findAll(page, [
+      // Fallback: expand buttons within the same scope
+      const expandBtns = await findAll(root, [
         '[aria-expanded="false"]',
         ...EXPAND_BUTTON_SELECTORS,
       ]);
@@ -512,56 +507,39 @@ function countPages(pages) {
 }
 
 /**
- * Force Loop's virtualized tree to render by scrolling the likely tree container.
- * Re-expands collapsed nodes between scroll passes.
+ * Force the page tree in the expandable sidebar to fully render (scroll + expand).
+ * Scrolls and expands only within the sidebar root when provided.
  */
-async function fullyMaterializePageTree(page, verbose) {
+async function fullyMaterializePageTree(page, verbose, sidebarRoot = null) {
+  const root = sidebarRoot || page;
   const maxPasses = 12;
   let lastCount = -1;
 
   for (let pass = 1; pass <= maxPasses; pass++) {
-    // Expand anything currently visible
-    await expandAllNodes(page, verbose);
+    await expandAllNodes(page, verbose, sidebarRoot);
 
-    // Count visible tree items
-    const items = await findAll(page, PAGE_ITEM_SELECTORS);
+    const items = await (sidebarRoot ? findAll(sidebarRoot, PAGE_ITEM_SELECTORS) : findAll(page, PAGE_ITEM_SELECTORS));
     const count = items.length;
     if (verbose) log(`  [tree] pass ${pass}: visible page items=${count}`);
 
-    if (count > 0 && count === lastCount) {
-      // No growth since last pass. Probably fully materialized.
-      break;
-    }
+    if (count > 0 && count === lastCount) break;
     lastCount = count;
 
-    // Try to scroll the tree container; fall back to scrolling the sidebar/nav.
-    const scrollSelectors = [
-      '[role="tree"]',
-      'nav[role="navigation"]',
-      'aside',
-      '[class*="sidebar"]',
-      '[class*="Sidebar"]',
-      'body',
-    ];
-
-    let scrolled = false;
-    for (const sel of scrollSelectors) {
+    // Scroll within the expandable sidebar to reveal more items
+    if (sidebarRoot) {
       try {
-        const el = await page.$(sel);
-        if (!el) continue;
-        await el.evaluate((node) => {
-          node.scrollTop = node.scrollHeight;
+        await sidebarRoot.evaluate((node) => {
+          if (node && typeof node.scrollTop !== 'undefined') node.scrollTop = node.scrollHeight;
         });
-        scrolled = true;
-        break;
-      } catch { /* try next */ }
-    }
-
-    if (!scrolled) {
+      } catch { /* ignore */ }
       try {
-        await page.mouse.wheel(0, 2000);
-      } catch {}
+        const tree = await sidebarRoot.$('[role="tree"]');
+        if (tree) await tree.evaluate((n) => { n.scrollTop = n.scrollHeight; });
+      } catch { /* ignore */ }
     }
+    try {
+      await page.mouse.wheel(0, 800);
+    } catch {}
 
     await setTimeout(800);
   }
