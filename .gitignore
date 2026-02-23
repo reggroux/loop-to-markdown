@@ -1,0 +1,17 @@
+# deps
+node_modules/
+
+# local output
+output/
+
+# auth/session state (NEVER COMMIT)
+auth-state.json
+
+# logs
+*.log
+
+# env
+.env
+
+# macOS junk
+.DS_Store
