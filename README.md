@@ -171,6 +171,12 @@ Delete it to force a fresh login on the next run, or use `--force-login`.
 
 ---
 
+## Security / Privacy
+
+- **Never commit** `auth-state.json`. It contains authenticated browser storage (cookies/localStorage) and can grant access to your Loop tenant.
+- **Never commit** `output/`. It contains exported content from your Loop workspaces.
+- If you accidentally commit either, rotate sessions immediately (sign out everywhere) and rewrite git history.
+
 ## Troubleshooting
 
 ### "0 workspaces found" or empty manifest
