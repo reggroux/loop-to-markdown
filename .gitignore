@@ -1,5 +1,6 @@
 # deps
 node_modules/
+.playwright-browsers/
 
 # local output
 output/

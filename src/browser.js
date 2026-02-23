@@ -11,6 +11,7 @@ import { chromium } from 'playwright';
 import { existsSync, mkdirSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { setTimeout } from 'node:timers/promises';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -134,7 +135,7 @@ export async function waitForLoopReady(page, timeout = 120_000) {
     const url = page.url();
     // If we're still on Microsoft login pages, keep waiting
     if (url.includes('login.microsoftonline') || url.includes('login.live.com')) {
-      await page.waitForTimeout(2_000);
+      await setTimeout(2000);
       continue;
     }
 
@@ -145,7 +146,7 @@ export async function waitForLoopReady(page, timeout = 120_000) {
         if (el) {
           console.log(`✅ Loop ready — matched selector: ${sel}`);
           // Extra settle time for SPA hydration
-          await page.waitForTimeout(2_000);
+          await setTimeout(2000);
           return true;
         }
       } catch {
@@ -159,11 +160,11 @@ export async function waitForLoopReady(page, timeout = 120_000) {
     const looksLikeAuth = t.includes('sign') || t.includes('login') || t.includes('account') || t.includes('microsoft');
     if ((url.includes('loop.microsoft.com') || url.includes('loop.cloud.microsoft')) && title && !looksLikeAuth) {
       console.log(`✅ Loop ready (heuristic) — URL=${url}, title="${title}"`);
-      await page.waitForTimeout(2_000);
+      await setTimeout(2000);
       return true;
     }
 
-    await page.waitForTimeout(1_500);
+    await setTimeout(1_500);
   }
 
   throw new Error(`Loop did not become ready within ${timeout}ms. Last URL: ${page.url()}`);

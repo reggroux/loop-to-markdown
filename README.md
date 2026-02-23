@@ -202,11 +202,19 @@ Some Loop images require authenticated requests. The exporter passes your sessio
 cookies to the asset downloader — if downloads still fail, check `audit-report.json`
 for the failing URLs and try opening them in the browser.
 
-### Playwright not found
+### Playwright not found / "Executable doesn't exist" (e.g. Apple Silicon)
+
+Browsers are installed for your **current machine**. If you see a path like `chrome-mac-arm64` but only `chrome-mac-x64` exists (or vice versa), install from your project folder **on your Mac** so the correct binary is downloaded:
 
 ```bash
-npm install
-npx playwright install chromium
+cd /path/to/loop-to-markdown
+PLAYWRIGHT_BROWSERS_PATH=./.playwright-browsers npx playwright install chromium
+```
+
+Or use the npm script:
+
+```bash
+npm run install-browsers
 ```
 
 ---

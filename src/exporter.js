@@ -22,6 +22,7 @@
 
 import path from 'path';
 import { writeFileSync, mkdirSync } from 'fs';
+import { setTimeout } from 'node:timers/promises';
 import {
   PAGE_CONTENT_SELECTORS,
   PAGE_TITLE_SELECTORS,
@@ -155,7 +156,7 @@ async function exportSinglePage(page, pageEntry, dir, filename, assetsDir, asset
     // Loop is a heavy SPA and often never reaches true "networkidle".
     // Prefer domcontentloaded and then wait for the page shell/content.
     await page.goto(pageEntry.url, { waitUntil: 'domcontentloaded', timeout: 180_000 });
-    await page.waitForTimeout(2_000);
+    await setTimeout(2000);
 
     // Extract page title from DOM (may be more accurate than sidebar label)
     const titleEl = await findFirst(page, PAGE_TITLE_SELECTORS, 3000);

@@ -10,6 +10,7 @@
  *  - Network requests that look like Loop API calls
  */
 
+import { setTimeout } from 'node:timers/promises';
 import {
   WORKSPACE_LIST_SELECTORS,
   WORKSPACE_ITEM_SELECTORS,
@@ -122,7 +123,7 @@ export async function runInspector(page) {
   };
   page.on('response', onResponse);
   await page.reload({ waitUntil: 'networkidle', timeout: 30_000 }).catch(() => {});
-  await page.waitForTimeout(3_000);
+  await setTimeout(3000);
   page.off('response', onResponse);
 
   console.log(`  Captured ${apiCalls.length} API response(s):`);

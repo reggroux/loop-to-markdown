@@ -7,9 +7,9 @@
     "loop-export": "./src/cli.js"
   },
   "scripts": {
-    "inventory": "node src/cli.js inventory",
-    "export": "node src/cli.js export",
-    "install-browsers": "npx playwright install chromium"
+    "inventory": "PLAYWRIGHT_BROWSERS_PATH=./.playwright-browsers node src/cli.js inventory",
+    "export": "PLAYWRIGHT_BROWSERS_PATH=./.playwright-browsers node src/cli.js export",
+    "install-browsers": "PLAYWRIGHT_BROWSERS_PATH=./.playwright-browsers npx playwright install chromium"
   },
   "dependencies": {
     "playwright": "^1.43.0",

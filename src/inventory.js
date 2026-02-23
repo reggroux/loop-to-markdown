@@ -23,11 +23,13 @@
 
 import path from 'path';
 import { writeFileSync, mkdirSync } from 'fs';
+import { setTimeout } from 'node:timers/promises';
 import {
   WORKSPACE_LIST_SELECTORS,
   WORKSPACE_ITEM_SELECTORS,
   PAGE_ITEM_SELECTORS,
   EXPAND_BUTTON_SELECTORS,
+  EXPAND_INSIDE_TREEITEM_SELECTORS,
   findFirst,
   findAll,
   elementLabel,
@@ -53,7 +55,7 @@ export async function runInventory(page, { outputDir, verbose = false }) {
   }
 
   // Allow SPA to settle
-  await page.waitForTimeout(3_000);
+  await setTimeout(3_000);
 
   // ── Step 1: Enumerate workspaces ──────────────────────────────────────────
   const workspaceData = await enumerateWorkspaces(page, verbose);
@@ -64,7 +66,7 @@ export async function runInventory(page, { outputDir, verbose = false }) {
     log(`\n📂 Workspace: "${ws.title}" — navigating…`);
     try {
       await navigateToWorkspace(page, ws);
-      await page.waitForTimeout(2_500);
+      await setTimeout(2_500);
       ws.pages = await enumeratePages(page, ws, verbose);
       log(`   ↳ ${countPages(ws.pages)} page(s) found`);
     } catch (err) {
@@ -178,7 +180,7 @@ async function apiInterceptWorkspaces(page, verbose) {
 
   // Reload to trigger API calls
   await page.reload({ waitUntil: 'domcontentloaded', timeout: 120_000 });
-  await page.waitForTimeout(3_000);
+  await setTimeout(3_000);
 
   // Parse captured responses
   const workspaces = [];
@@ -221,7 +223,7 @@ async function navigateToWorkspace(page, ws) {
   if (!clicked) {
     throw new Error(`Could not navigate to workspace "${ws.title}" — no URL and sidebar click failed`);
   }
-  await page.waitForTimeout(2_000);
+  await setTimeout(2_000);
 }
 
 async function clickSidebarItem(page, title) {
@@ -286,7 +288,7 @@ async function enumeratePages(page, workspace, verbose) {
       if (!url) {
         try {
           await item.click({ timeout: 2500 });
-          await page.waitForTimeout(1200);
+          await setTimeout(1200);
           const current = page.url();
           if (current && (current.includes('loop.microsoft.com') || current.includes('loop.cloud.microsoft')) && !current.includes('/learn')) {
             url = current;
@@ -316,33 +318,72 @@ async function enumeratePages(page, workspace, verbose) {
 }
 
 /**
- * Expand all collapsed tree nodes by clicking expand buttons repeatedly
- * until no more collapsed nodes exist (or a max iteration cap).
+ * Expand all collapsed tree nodes by clicking expand/caret controls.
+ * Strategy: find collapsed [role="treeitem"] nodes, scroll each into view,
+ * then click the expand control *inside* that item (or the row itself).
+ * Repeats until no new collapsed nodes appear (or max iterations).
  */
 async function expandAllNodes(page, verbose) {
   let iterations = 0;
-  const maxIterations = 10;
+  const maxIterations = 20;
 
   while (iterations < maxIterations) {
-    const expandBtns = await findAll(page, [
-      '[aria-expanded="false"]',
-      ...EXPAND_BUTTON_SELECTORS,
-    ]);
+    // Find tree items that are collapsed (have children but not expanded)
+    const collapsedTreeItems = await page.$$('[role="treeitem"][aria-expanded="false"]');
 
-    // Filter to only actually-collapsed buttons
-    const collapsed = [];
-    for (const btn of expandBtns) {
-      const expanded = await safeAttr(btn, 'aria-expanded');
-      if (expanded === 'false') collapsed.push(btn);
+    if (!collapsedTreeItems.length) {
+      // Fallback: look for any expand buttons in the page (legacy behavior)
+      const expandBtns = await findAll(page, [
+        '[aria-expanded="false"]',
+        ...EXPAND_BUTTON_SELECTORS,
+      ]);
+      const collapsed = [];
+      for (const btn of expandBtns) {
+        const expanded = await safeAttr(btn, 'aria-expanded');
+        if (expanded === 'false') collapsed.push(btn);
+      }
+      if (!collapsed.length) break;
+      if (verbose) log(`  [expand] iteration ${iterations + 1}: ${collapsed.length} expand button(s) (fallback)`);
+      for (const btn of collapsed) {
+        try {
+          await btn.evaluate((el) => el.scrollIntoView({ block: 'nearest', behavior: 'auto' }));
+          await setTimeout(150);
+          await btn.click({ timeout: 1500 });
+        } catch { /* ignore stale */ }
+        await setTimeout(200);
+      }
+    } else {
+      if (verbose) log(`  [expand] iteration ${iterations + 1}: ${collapsedTreeItems.length} collapsed tree item(s)`);
+
+      for (const treeItem of collapsedTreeItems) {
+        try {
+          // Scroll the tree item into view so the expand control is visible (helps virtualized trees)
+          await treeItem.evaluate((el) => el.scrollIntoView({ block: 'nearest', behavior: 'auto' }));
+          await setTimeout(150);
+
+          // Prefer clicking the expand/caret control *inside* the tree item
+          let clicked = false;
+          for (const sel of EXPAND_INSIDE_TREEITEM_SELECTORS) {
+            try {
+              const expandEl = await treeItem.$(sel);
+              if (expandEl) {
+                await expandEl.click({ timeout: 1200 });
+                clicked = true;
+                break;
+              }
+            } catch { /* try next selector */ }
+          }
+
+          // If no inner expand control worked, click the tree item row (many UIs expand on row click)
+          if (!clicked) {
+            await treeItem.click({ timeout: 1200, position: { x: 10, y: 15 } });
+          }
+        } catch { /* ignore stale or detached */ }
+        await setTimeout(250);
+      }
     }
 
-    if (!collapsed.length) break;
-    if (verbose) log(`  [expand] iteration ${iterations + 1}: ${collapsed.length} node(s) to expand`);
-
-    for (const btn of collapsed) {
-      try { await btn.click({ timeout: 1500 }); } catch { /* ignore stale */ }
-    }
-    await page.waitForTimeout(1_000);
+    await setTimeout(800);
     iterations++;
   }
 }
@@ -367,7 +408,7 @@ async function apiInterceptPages(page, workspace, verbose) {
     }
   });
 
-  await page.waitForTimeout(5_000);
+  await setTimeout(5_000);
 
   const pages = [];
   for (const { body } of captured) {
@@ -522,7 +563,7 @@ async function fullyMaterializePageTree(page, verbose) {
       } catch {}
     }
 
-    await page.waitForTimeout(800);
+    await setTimeout(800);
   }
 }
 

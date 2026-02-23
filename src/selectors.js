@@ -102,6 +102,18 @@ export const EXPAND_BUTTON_SELECTORS = [
   '[class*="fui-TreeItemLayout__expandIcon"]',
 ];
 
+/** Selectors for the expand/caret control *inside* a tree item (run within the tree item element). */
+export const EXPAND_INSIDE_TREEITEM_SELECTORS = [
+  'button[aria-expanded]',
+  '[aria-expanded][class*="expand"]',
+  '[class*="expandIcon"]',
+  '[class*="expand-icon"]',
+  '[class*="fui-TreeItemLayout__expandIcon"]',
+  '[class*="chevron"]',
+  '[class*="Chevron"]',
+  'button', // fallback: first button in the row is often the expand
+];
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /**
